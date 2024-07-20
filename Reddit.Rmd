@@ -1,0 +1,371 @@
+  ---
+title: "Reddit-Team O"
+author: "Team O"
+output: html_document
+---
+
+#LOADING THE DATA
+
+```{r}
+library(readxl)
+data <- read_excel("C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/Dataset.xlsx")
+head(data,10)
+```
+
+#PRE-PROCESSING
+
+```{r}
+data <- data[, !(names(data) %in% c("URL","Author","Title"))]
+head(data,10)
+```
+
+```{r}
+library(tm)
+preprocess_text <- function(text) {
+  text <- tolower(text)
+  text <- removeEmoji(text)
+  text <- gsub("comment", "", text)
+  text <- gsub("score", "", text)
+  text <- gsub("author", "", text)
+  text <- gsub("(https?|www)\\S+", "", text)
+  text <- gsub("[^a-zA-Z\\s]", " ", text)
+  text <- gsub("\\s+", " ", text)
+  text <- removeWords(text, c(stopwords("english"), "will", "can", "just"))
+  text <- trimws(text)
+  return(text)
+}
+```
+
+```{r}
+removeEmoji <- function(text) {
+  emoji_pattern <- "[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251\U0001f926-\U0001f937\U00010000-\U0010ffff\U0001F1E0-\U0001F1FF]"
+  text <- gsub(emoji_pattern, "", text, perl=TRUE)
+  return(text)
+}
+data$Clean_Comments <- sapply(data$Comments, preprocess_text)
+head(data,10)
+```
+
+#WordCloud
+
+```{r}
+library(wordcloud)
+comments_corpus <- Corpus(VectorSource(data$Clean_Comments))
+clean_corpus <- tm_map(comments_corpus, content_transformer(tolower))
+clean_corpus <- tm_map(clean_corpus, removePunctuation)
+clean_corpus <- tm_map(clean_corpus, removeNumbers)
+clean_corpus <- tm_map(clean_corpus, removeWords, c(stopwords("english"), "will", "can", "just"))
+clean_corpus <- tm_map(clean_corpus, stripWhitespace)
+wordcloud(clean_corpus, random.order = FALSE, max.words = 50, colors = rainbow(50), scale = c(4, 0.5))
+```
+
+```{r}
+data <- data[, !(names(data) %in% c("Comments"))]
+```
+
+#POSITIVE WORDS CORPUS
+
+```{r}
+positive_words_file <- "C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/positive-words.txt"  # Specify the path to your text file
+pos.words <- scan(positive_words_file, what = "character", sep = "\n")
+pos.words <- tolower(pos.words)
+head(pos.words,30)
+```
+
+#NEGATIVE WORDS CORPUS
+
+```{r}
+negative_words_file <- "C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/negative-words.txt"  # Specify the path to your text file
+neg.words <- scan(negative_words_file, what = "character", sep = "\n")
+neg.words <- tolower(neg.words)
+head(neg.words,30)
+```
+
+#SCORE CALCULATION
+
+```{r}
+library(dplyr)
+calculate_score <- function(comment) {
+  words <- unlist(strsplit(comment, "\\s+"))
+  positive_count <- sum(words %in% pos.words)
+  negative_count <- sum(words %in% neg.words)
+  total_words <- length(words)
+  positive_percentage <- positive_count / total_words
+  negative_percentage <- negative_count / total_words
+  if (positive_count > negative_count) {
+    label <- 1  # Positive
+  } else if (negative_count > positive_count) {
+    label <- 0  # Negative
+  } else {
+    label <- 2  # Neutral
+  }
+  return(list(score = positive_count - negative_count,
+              positive_count = positive_count,
+              negative_count = negative_count,
+              positive_percentage = positive_percentage,
+              negative_percentage = negative_percentage,
+              class_label = label))
+}
+```
+
+```{r}
+data <- data %>%
+  rowwise() %>%
+  mutate(score_info = list(calculate_score(Clean_Comments))) %>%
+  ungroup() %>%
+  mutate(score = purrr::map_dbl(score_info, "score"),
+         positive_count = purrr::map_dbl(score_info, "positive_count"),
+         negative_count = purrr::map_dbl(score_info, "negative_count"),
+         positive_percentage = purrr::map_dbl(score_info, "positive_percentage"),
+         negative_percentage = purrr::map_dbl(score_info, "negative_percentage"),
+         class_label = purrr::map_int(score_info, "class_label")) %>%
+  select(-score_info)  
+head(data,10)
+```
+
+```{r}
+data$positive_percentage <- round(replace(data$positive_percentage, is.nan(data$positive_percentage), 0), 3)
+data$negative_percentage <- round(replace(data$negative_percentage, is.nan(data$negative_percentage), 0), 3)
+head(data,10)
+```
+
+#CONVERTING DATAFRAME TO CSV FOR MODELLING
+
+```{r}
+write.csv(data, "df.csv", row.names = FALSE)
+```
+
+#VISUALIZATION
+
+```{r}
+h1 <- hist(data$positive_count, col = rainbow(10))
+non_zero_indices <- which(h1$counts != 0)
+text(h1$mids[non_zero_indices], h1$counts[non_zero_indices], labels = h1$counts[non_zero_indices], adj = c(0.5, -0.5), col = "black", cex = 0.6)
+```
+
+```{r}
+h2 <- hist(data$negative_count, col = rainbow(10))
+non_zero_indices <- which(h2$counts != 0)
+text(h2$mids[non_zero_indices], h2$counts[non_zero_indices], labels = h2$counts[non_zero_indices], adj = c(0.5, -0.5), col = "black", cex = 0.6)
+```
+
+```{r}
+h3 <- hist(data$score, col = rainbow(10))
+non_zero_indices <- which(h3$counts != 0)
+text(h3$mids[non_zero_indices], h3$counts[non_zero_indices], labels = h3$counts[non_zero_indices], adj = c(0.5, -0.5), col = "black", cex = 0.6)
+```
+
+```{r}
+slices <- c(sum(data$positive_count), sum(data$negative_count))
+labels <- c("Positive", "Negative")
+library(plotrix)
+pie3D(slices, labels = labels, col=rainbow(length(labels)),explode=0.00, main="Sentiment Analysis")
+percentages <- round(100 * slices / sum(slices), 1)
+legend("topright", legend = paste(labels, percentages, "%"), cex = 0.8, fill = rainbow(length(labels)))
+```
+
+```{r}
+sum_scores <- tapply(data$`Reddit Score`, data$class_label, sum)
+
+colors <- rainbow(length(sum_scores))
+color = "black"
+barplot(sum_scores, 
+        main = "Sum of Reddit Scores by Class Label",
+        xlab = "Class Label",
+        ylab = "Sum of Reddit Scores",
+        col = colors,
+        ylim = c(0, max(sum_scores) * 1.1)) 
+
+text(x = 1:length(sum_scores), y = sum_scores, labels = sum_scores, pos = 3, col = color, cex = 0.8)
+sum_scores <- tapply(data$`Number of Comments`, data$class_label, sum)
+
+colors <- rainbow(length(sum_scores))
+color = "black"
+
+barplot(sum_scores, 
+        main = "Sum of Comments by Class Label",
+        xlab = "Class Label",
+        ylab = "Sum of Comments",
+        col = colors,
+        ylim = c(0, max(sum_scores) * 1.1))  # Adjust the y-axis limit to leave space for labels
+
+text(x = 1:length(sum_scores), y = sum_scores, labels = sum_scores, pos = 3, col = color, cex = 0.8)
+```
+
+```{r}
+Sc <- data$score
+
+good <- sapply(data$score, function(Sc) Sc > 0 && Sc <= 3)
+pos1 <- data$score[good]
+pos1_len <- length(pos1)
+
+vgood <- sapply(data$score, function(Sc) Sc > 3 && Sc < 5)
+pos2 <- data$score[vgood]
+pos2_len <- length(pos2)
+
+vvgood <- sapply(data$score, function(Sc) Sc >= 6)
+pos3 <- data$score[vvgood]
+pos3_len <- length(pos3)
+
+bad <- sapply(data$score, function(Sc) Sc < 0 && Sc >= -3)
+neg1 <- data$score[bad]
+neg1_len <- length(neg1)
+
+vbad <- sapply(data$score, function(Sc) Sc < -3 && Sc >= -5)
+neg2 <- data$score[vbad]
+neg2_len <- length(neg2)
+
+vvbad <- sapply(data$score, function(Sc) Sc <= -6)
+neg3 <- data$score[vvbad]
+neg3_len <- length(neg3)
+
+neutral <- sapply(data$score, function(Sc) Sc == 0)
+neu <- data$score[neutral]
+neu_len <- length(neu)
+
+slices1 <- c(pos1_len, neg3_len, neg1_len, pos2_len, neg2_len, neu_len, pos3_len)
+lbls1 <- c("Good", "Awful", "Unsatisfactory", "Great", "Poor", "Neutral", "Outstanding")
+pct <- round(slices1 / sum(slices1) * 100)
+lbls1 <- paste(lbls1, pct) # add percents to labels 
+lbls1 <- paste(lbls1, "%", sep = "") # add % to labels 
+
+pie(slices1, labels = NA, col = rainbow(length(lbls1)),
+    main = "No. of reddit posts with particular sentiment")
+
+legend("right", legend = lbls1, fill = rainbow(length(lbls1)), bty = "n", cex = 1)
+
+```
+
+#MODEL BUILDING - NAIVE BAYES
+
+```{r}
+library(caret)
+library(e1071)
+library(tm)
+library(readxl)
+data1 <- read.csv("C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/df.csv")
+head(data1,10)
+```
+
+
+```{r}
+set.seed(123)
+trainIndex <- createDataPartition(data1$class_label, p = 0.7, list = FALSE)
+train_data <- data1[trainIndex, ]
+test_data <- data1[-trainIndex, ]
+```
+
+
+```{r}
+corpus <- VCorpus(VectorSource(train_data$Clean_Comments))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+dtm <- DocumentTermMatrix(corpus)
+m <- as.matrix(dtm)
+```
+
+
+```{r}
+model <- naiveBayes(m, train_data$class_label)
+```
+
+
+```{r}
+test_corpus <- Corpus(VectorSource(test_data$Clean_Comments))
+test_corpus <- tm_map(test_corpus, content_transformer(tolower))
+test_corpus <- tm_map(test_corpus, removePunctuation)
+test_corpus <- tm_map(test_corpus, removeNumbers)
+test_corpus <- tm_map(test_corpus, removeWords, stopwords("english"))
+test_corpus <- tm_map(test_corpus, stripWhitespace)
+test_dtm <- DocumentTermMatrix(test_corpus)
+test_m <- as.matrix(test_dtm)
+```
+
+
+```{r}
+suppressWarnings({
+  predictions <- predict(model, test_m)
+  accuracy <- sum(predictions == test_data$class_label) / length(test_data$class_label)
+  print(paste("Accuracy:", accuracy))
+})
+```
+
+```{r}
+library(e1071)
+library(tm)
+library(RWeka)
+corpus <- Corpus(VectorSource(data1$Clean_Comments))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+dtm <- DocumentTermMatrix(corpus)
+text_matrix <- as.matrix(dtm)
+data1$class_label <- as.factor(data1$class_label)
+set.seed(123)
+train_index <- sample(1:nrow(data1), 0.7 * nrow(data1))
+train_data <- data1[train_index, ]
+test_data <- data1[-train_index, ]
+svm_model <- svm(class_label ~ ., data = train_data[, !names(train_data) %in% "Clean_Comments"], kernel = "radial")
+predictions <- predict(svm_model, test_data[, !names(test_data) %in% "Clean_Comments"])
+accuracy <- mean(predictions == test_data$class_label)
+print(paste("Accuracy:", accuracy))
+
+```
+
+#KNN Classification
+
+```{r}
+library(class)
+library(tm)
+corpus <- Corpus(VectorSource(data1$Clean_Comments))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation)  
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, removeWords, stopwords("english"))  
+corpus <- tm_map(corpus, stripWhitespace)
+dtm <- DocumentTermMatrix(corpus)
+text_matrix <- as.matrix(dtm)
+data1$class_label <- as.factor(data1$class_label)
+set.seed(123)
+train_index <- sample(1:nrow(data1), 0.7 * nrow(data1))
+train_data <- data1[train_index, ]
+test_data <- data1[-train_index, ]
+train_X <- train_data[, !names(train_data) %in% c("Clean_Comments", "class_label")]
+train_Y <- train_data$class_label
+test_X <- test_data[, !names(test_data) %in% c("Clean_Comments", "class_label")]
+test_Y <- test_data$class_label
+```
+
+
+```{r}
+max_k <- 10 
+accuracy <- numeric(max_k)
+
+for (k in 1:max_k) {
+  knn_model <- knn(train = train_X, test = test_X, cl = train_Y, k = k)
+  accuracy[k] <- mean(knn_model == test_Y)
+}
+
+plot(1:max_k, accuracy, type = "b", xlab = "Number of Neighbors (k)", ylab = "Accuracy", main = "kNN Accuracy vs. Number of Neighbors")
+
+optimal_k <- which.max(accuracy)
+conf_matrix_knn <- table(knn_model, test_data$class_label)
+conf_matrix_knn
+accuracy <- mean(knn_model == test_Y)
+print(paste("Accuracy:", accuracy))
+```
+
+```{r}
+accuracy_naive_bayes <- 0.728682
+accuracy_svm <- 0.98069
+accuracy_KNN <- 0.83011
+model_names <- c("Naive_bayes", "SVM","KNN")
+accuracy_df <- data.frame(Model = model_names, Accuracy = c(accuracy_naive_bayes, accuracy_svm, accuracy_KNN))
+print(accuracy_df)
+```
+

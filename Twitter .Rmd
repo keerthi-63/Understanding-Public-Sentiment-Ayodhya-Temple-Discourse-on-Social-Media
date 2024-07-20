@@ -1,0 +1,379 @@
+---
+title: "Twitter"
+author: "Team O"
+output: html_document
+---
+
+#LOADING THE DATA
+
+```{r}
+library(readxl)
+path <- "C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/tweets1.xlsx"
+data <- read_excel(path)
+head(data,10)
+```
+
+#PRE-PROCESSING
+
+```{r}
+tweet_column <- "snippet"  # Replace "tweet_text" with the actual column name
+tweets <- data[[tweet_column]]
+sample <- NULL
+tweets <- sapply(tweets, function(tweet) {
+  tweet <- iconv(tweet, "latin1", "ASCII", sub = "")
+  tweet <- gsub("(f|ht)tp(s?)://(.*)[.][a-z]+", "", tweet)
+  return(tweet)
+})
+sample <- c(sample, tweets)
+print(head(sample,10))
+```
+
+#WordCloud
+
+```{r}
+library(wordcloud)
+library(tm)
+quake_corpus <- Corpus(VectorSource(tweets))
+quake_clean <- tm_map(quake_corpus, removePunctuation)
+quake_clean <- tm_map(quake_clean, content_transformer(tolower))
+quake_clean <- tm_map(quake_clean, removeWords, stopwords("english"))
+quake_clean <- tm_map(quake_clean, removeNumbers)
+quake_clean <- tm_map(quake_clean, stripWhitespace)
+wordcloud(quake_clean, random.order = FALSE, max.words = 80, col = rainbow(50), scale = c(4,0.5))
+```
+
+#POSITIVE WORDS CORPUS
+
+```{r}
+positive_words_file <- "C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/positive-words.txt"  # Specify the path to your text file
+pos.words <- scan(positive_words_file, what = "character", sep = "\n")
+pos.words <- tolower(pos.words)
+head(pos.words,30)
+```
+
+#NEGATIVE WORDS CORPUS
+
+```{r}
+negative_words_file <- "C:/Users/karthick/Desktop/VIT/SEM 08/EDA/PROJECT/negative-words.txt"  # Specify the path to your text file
+neg.words <- scan(negative_words_file, what = "character", sep = "\n")
+neg.words <- tolower(neg.words)
+head(neg.words,30)
+```
+
+#SCORE CALCULATION
+
+```{r}
+score.sentiment <- function(tweets, pos.words, neg.words, .progress = 'none') {
+    require(plyr)
+    require(stringr)
+    list <- lapply(tweets, function(tweet, pos.words, neg.words) {
+      
+      ##Text Preprocessing:
+      
+        tweet <- gsub('[[:punct:]]', ' ', tweet)
+        tweet <- gsub('[[:cntrl:]]', '', tweet)
+        tweet <- gsub('\\d+', '', tweet)
+        tweet <- gsub('\n', '', tweet)
+        tweet <- tolower(tweet)
+        
+      ##Tokenization:
+        
+        word.list <- str_split(tweet, '\\s+')
+        words <- unlist(word.list)
+        
+      ##Matching Positive and Negative Words:
+        
+        pos.matches <- match(words, pos.words)
+        neg.matches <- match(words, neg.words)
+      
+      ##Calculating Scores:
+        
+        pos.matches <- !is.na(pos.matches)
+        neg.matches <- !is.na(neg.matches)
+        pp <- sum(pos.matches)
+        nn <- sum(neg.matches)
+        score <- sum(pos.matches) - sum(neg.matches)
+      
+      ##Creating Output List:
+        
+        list1 <- c(score, pp, nn)
+        return(list1)
+    }, pos.words, neg.words)
+    score_new <- lapply(list, `[[`, 1)
+    pp1 <- score <- lapply(list, `[[`, 2)
+    nn1 <- score <- lapply(list, `[[`, 3)
+    
+    ##Creating Data Frames:
+    
+    scores.df <- data.frame(score = score_new, text = tweets)
+    positive.df <- data.frame(Positive = pp1, text = tweets)
+    negative.df <- data.frame(Negative = nn1, text = tweets)
+    list_df <- list(scores.df, positive.df, negative.df)
+    return(list_df)
+}
+```
+
+```{r}
+result = score.sentiment(tweets, pos.words, neg.words)
+library(reshape)
+test1=result[[1]]
+test2=result[[2]]
+test3=result[[3]]
+```
+
+
+```{r}
+test1$text=NULL
+test2$text=NULL
+test3$text=NULL
+```
+
+
+```{r}
+q1=test1[1,]
+q2=test2[1,]
+q3=test3[1,]
+qq1=melt(q1, ,var='Score')
+qq2=melt(q2, ,var='Positive')
+qq3=melt(q3, ,var='Negative') 
+qq1['Score'] = NULL
+qq2['Positive'] = NULL
+qq3['Negative'] = NULL
+table1 = data.frame(Text=result[[1]]$text, Score=qq1)
+table2 = data.frame(Text=result[[2]]$text, Score=qq2)
+table3 = data.frame(Text=result[[3]]$text, Score=qq3)
+```
+
+```{r}
+table_final=data.frame(Text=table1$Text, Score=table1$value, Positive=table2$value, Negative=table3$value)
+head(table_final,10)
+```
+
+#VISUALIZATION
+
+```{r}
+h1 <- hist(table_final$Positive, col = rainbow(10))
+non_zero_indices <- which(h1$counts != 0)
+text(h1$mids[non_zero_indices], h1$counts[non_zero_indices], labels = h1$counts[non_zero_indices], adj = c(0.5, -0.5), col = "black", cex = 0.6)
+```
+
+
+```{r}
+h2 <- hist(table_final$Negative, col = rainbow(10))
+non_zero_indices <- which(h2$counts != 0)
+text(h2$mids[non_zero_indices], h2$counts[non_zero_indices], labels = h2$counts[non_zero_indices], adj = c(0.5, -0.5), col = "black", cex = 0.6)
+```
+
+
+```{r}
+h3 <- hist(table_final$Score, col = rainbow(10))
+non_zero_indices <- which(h3$counts != 0)
+text(h3$mids[non_zero_indices], h3$counts[non_zero_indices], labels = h3$counts[non_zero_indices], adj = c(0.5, -0.5), col = "black", cex = 0.6)
+```
+
+
+```{r}
+#Pie
+slices <- c(sum(table_final$Positive), sum(table_final$Negative))
+labels <- c("Positive", "Negative")
+library(plotrix)
+pie3D(slices, labels = labels, col=rainbow(length(labels)),explode=0.00, main="Sentiment Analysis")
+percentages <- round(100 * slices / sum(slices), 1)
+legend("topright", legend = paste(labels, percentages, "%"), cex = 0.8, fill = rainbow(length(labels)))
+```
+
+```{r}
+Sc= table_final$Score
+good<- sapply(table_final$Score, function(Sc) Sc > 0 && Sc <= 3)
+pos1=table_final$Score[good]
+pos1_len=length(pos1)
+
+vgood<- sapply(table_final$Score, function(Sc) Sc > 3 && Sc < 5)
+pos2=table_final$Score[vgood]
+pos2_len=length(pos2)
+
+vvgood<- sapply(table_final$Score, function(Sc) Sc >= 6)
+pos3=table_final$Score[vvgood]
+pos3_len=length(pos3)
+
+Sc= table_final$Score
+bad<- sapply(table_final$Score, function(Sc) Sc < 0 && Sc >= -3)
+neg1=table_final$Score[bad]
+neg1_len=length(neg1)
+
+vbad<- sapply(table_final$Score, function(Sc) Sc < -3 && Sc >= -5)
+neg2=table_final$Score[vbad]
+neg2_len=length(neg2)
+
+vvbad<- sapply(table_final$Score, function(Sc) Sc <= -6)
+neg3=table_final$Score[vvbad]
+neg3_len=length(neg3)
+
+neutral= sapply(table_final$Score, function(Sc) Sc == 0)
+neu=table_final$Score[neutral]
+neu_len=length(neu)
+
+slices1 <- c(pos1_len,neg3_len, neg1_len, pos2_len,  neg2_len, neu_len, pos3_len)
+lbls1 <- c( "Good","Awful","Unsatisfactory", "Great", "Poor", "Neutral", "Outstanding")
+pct=round(slices1/sum(slices1)*100)
+lbls1 <- paste(lbls1, pct) # add percents to labels 
+lbls1 <- paste(lbls1,"%",sep="") # ad % to labels 
+pie(slices1,labels = lbls1, col=rainbow(length(lbls1)),
+  	main="No. of tweets with particular sentiment")
+```
+
+
+```{r}
+posSc=table_final$Positive
+negSc=table_final$Negative
+table_final$PosPercent = posSc/ (posSc+negSc)
+pp = table_final$PosPercent
+pp[is.nan(pp)] <- 0
+table_final$PosPercent = pp
+table_final$NegPercent = negSc/ (posSc+negSc)
+nn = table_final$NegPercent
+nn[is.nan(nn)] <- 0
+table_final$NegPercent = nn
+head(table_final,10)
+```
+
+```{r}
+table_final$PosPercent <- table_final$Positive / (table_final$Positive + table_final$Negative)
+table_final$PosPercent[is.nan(table_final$PosPercent)] <- 0
+assign_class_label <- function(percentage) {
+  if (percentage > 0.5) {
+    return(1)
+  } else if (percentage < 0.5) {
+    return(0)
+  } else if (percentage == 0.5) {
+    return(2)
+  } else {
+    return(-1)  # For other percentages, you can assign a different label or handle as needed
+  }
+}
+table_final$class_label <- sapply(table_final$PosPercent, assign_class_label)
+#table_final$PosPercent <- NULL
+#table_final$NegPercent <- NULL
+head(table_final,10)
+```
+
+```{r}
+write.csv(table_final, "checkingop.csv", row.names = FALSE)
+```
+
+
+#MODEL BUILDING - NAIVE BAYES
+
+```{r}
+library(caret)
+library(e1071)
+library(tm)
+set.seed(123)
+```
+
+```{r}
+trainIndex <- createDataPartition(table_final$class_label, p = 0.7, list = FALSE)
+train_data <- table_final[trainIndex, ]
+test_data <- table_final[-trainIndex, ]
+corpus <- VCorpus(VectorSource(train_data$Text))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+```
+
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+m <- as.matrix(dtm)
+model <- naiveBayes(m, train_data$class_label)
+test_corpus <- Corpus(VectorSource(test_data$Text))
+test_corpus <- tm_map(test_corpus, content_transformer(tolower))
+test_corpus <- tm_map(test_corpus, removePunctuation)
+test_corpus <- tm_map(test_corpus, removeNumbers)
+test_corpus <- tm_map(test_corpus, removeWords, stopwords("english"))
+test_corpus <- tm_map(test_corpus, stripWhitespace)
+test_dtm <- DocumentTermMatrix(corpus)
+test_m <- as.matrix(test_dtm)
+```
+
+```{r}
+predictions <- predict(model, test_m)
+accuracy <- sum(predictions == test_data$class_label) / length(test_data$class_label)
+print(paste("Accuracy:", accuracy))
+```
+
+# SVM model
+
+```{r}
+svm_model <- svm(m, as.factor(train_data$class_label))
+test_corpus <- Corpus(VectorSource(test_data$Text))
+test_corpus <- tm_map(test_corpus, content_transformer(tolower))
+test_corpus <- tm_map(test_corpus, removePunctuation)
+test_corpus <- tm_map(test_corpus, removeNumbers)
+test_corpus <- tm_map(test_corpus, removeWords, stopwords("english"))
+test_corpus <- tm_map(test_corpus, stripWhitespace)
+test_dtm <- DocumentTermMatrix(test_corpus, control = list(dictionary = Terms(dtm)))
+test_m <- as.matrix(test_dtm)
+```
+
+```{r}
+svm_predictions <- predict(svm_model, test_m)
+svm_accuracy <- sum(svm_predictions == test_data$class_label) / length(test_data$class_label)
+print(paste("SVM Accuracy:", svm_accuracy))
+
+```
+
+#KNN Classification
+
+```{r}
+library(caret)
+library(e1071)
+library(tm)
+set.seed(123)
+library(class)
+
+trainIndex <- createDataPartition(table_final$class_label, p = 0.7, list = FALSE)
+train_data <- table_final[trainIndex, ]
+test_data <- table_final[-trainIndex, ]
+
+train_corpus <- VCorpus(VectorSource(train_data$Text))
+train_corpus <- tm_map(train_corpus, content_transformer(tolower))
+train_corpus <- tm_map(train_corpus, removePunctuation)
+train_corpus <- tm_map(train_corpus, removeNumbers)
+train_corpus <- tm_map(train_corpus, removeWords, stopwords("english"))
+train_corpus <- tm_map(train_corpus, stripWhitespace)
+
+train_dtm <- DocumentTermMatrix(train_corpus)
+m_train <- as.matrix(train_dtm)
+
+test_corpus <- VCorpus(VectorSource(test_data$Text))
+test_corpus <- tm_map(test_corpus, content_transformer(tolower))
+test_corpus <- tm_map(test_corpus, removePunctuation)
+test_corpus <- tm_map(test_corpus, removeNumbers)
+test_corpus <- tm_map(test_corpus, removeWords, stopwords("english"))
+test_corpus <- tm_map(test_corpus, stripWhitespace)
+test_dtm <- DocumentTermMatrix(test_corpus)
+m_test <- as.matrix(test_dtm)
+k <- 3 
+knn_model <- knn(train = m_train[, intersect(colnames(m_train), colnames(m_test))], 
+                  test = m_test[, intersect(colnames(m_train), colnames(m_test))], 
+                  cl = train_data$class_label, k = k)
+conf_matrix_knn <- table(knn_model, test_data$class_label)
+conf_matrix_knn
+accuracy_knn <- sum(diag(conf_matrix_knn)) / sum(conf_matrix_knn)
+accuracy_knn
+```
+
+
+```{r}
+accuracy_naive_bayes <- 0.100694
+accuracy_svm <- 0.67708
+accuracy_KNN <- 0.55208
+model_names <- c("Naive_bayes", "SVM","KNN")
+accuracy_df <- data.frame(Model = model_names, Accuracy = c(accuracy_naive_bayes, accuracy_svm, accuracy_KNN))
+print(accuracy_df)
+```
+
+.
+
